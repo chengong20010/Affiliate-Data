@@ -1,86 +1,158 @@
-from flask import Flask, render_template, request, redirect, url_for, send_file, session
+# 导入 Flask 及其相关模块，用于构建 Web 应用
+from flask import Flask, flash, render_template, request, redirect, url_for, send_file, session
+# 导入 Flask-Login 相关模块，用于处理用户登录和会话管理
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+# 再次导入 session，虽然重复但不影响功能
 from flask import session
+# 导入 Werkzeug 安全模块，用于密码哈希和验证
 from werkzeug.security import generate_password_hash, check_password_hash
+# 导入 Werkzeug 工具模块，用于安全处理文件名
 from werkzeug.utils import secure_filename
+# 导入 openpyxl 库，用于读取 Excel 文件
 from openpyxl import load_workbook
+# 导入 pymysql 游标模块，用于与 MySQL 数据库交互
 import pymysql.cursors
+# 从配置文件中导入配置类
 from config import Config
+# 再次导入 openpyxl 库，用于创建 Excel 文件
 from openpyxl import Workbook
+# 导入 os 模块，用于操作系统相关功能，如文件路径操作
 import os
+# 导入 datetime 模块，用于处理日期和时间
 from datetime import datetime
 
+# 创建 Flask 应用实例
 app = Flask(__name__)
+# 从配置类中加载应用配置
 app.config.from_object(Config)
 
+# 初始化 Flask-Login 的登录管理器
 login_manager = LoginManager(app)
+# 设置登录视图，当用户未登录访问需要登录的页面时，重定向到该视图
 login_manager.login_view = 'login'
 
 # 数据库连接
 def get_db_connection():
+    """
+    建立与 MySQL 数据库的连接。
+
+    :return: 返回一个 pymysql 连接对象
+    """
     return pymysql.connect(
+        # 从应用配置中获取 MySQL 主机地址
         host=app.config['MYSQL_HOST'],
+        # 从应用配置中获取 MySQL 用户名
         user=app.config['MYSQL_USER'],
+        # 从应用配置中获取 MySQL 密码
         password=app.config['MYSQL_PASSWORD'],
+        # 从应用配置中获取要连接的 MySQL 数据库名
         database=app.config['MYSQL_DB'],
+        # 指定游标类为 DictCursor，查询结果以字典形式返回
         cursorclass=pymysql.cursors.DictCursor
     )
 
 class User(UserMixin):
+    """
+    用户类，继承自 UserMixin，用于 Flask-Login 管理用户会话。
+    """
     def __init__(self, user_id):
+        """
+        初始化用户对象。
+
+        :param user_id: 用户的唯一标识符
+        """
         self.id = user_id
 
 @login_manager.user_loader
 def load_user(user_id):
+    """
+    根据用户 ID 加载用户对象，Flask-Login 会在需要时调用此函数。
+
+    :param user_id: 用户的唯一标识符
+    :return: 如果用户存在，返回 User 对象；否则返回 None
+    """
     conn = get_db_connection()
     try:
         with conn.cursor() as cursor:
+            # 从 users 表中查询指定 ID 的用户
             cursor.execute('SELECT id FROM users WHERE id = %s', (user_id,))
             user = cursor.fetchone()
             if user:
                 return User(user_id)
     finally:
+        # 确保无论查询结果如何，都关闭数据库连接
         conn.close()
     return None
 
 @app.route('/logout')
-@login_required  # 添加登录验证装饰器
+@login_required  # 添加登录验证装饰器，确保只有登录用户可以访问此路由
 def logout():
-    logout_user()  # 使用 Flask-Login 的 logout_user 函数
+    """
+    处理用户注销请求。
+
+    :return: 重定向到登录页面
+    """
+    # 使用 Flask-Login 的 logout_user 函数注销当前用户
+    logout_user()
     return redirect(url_for('login'))
 
 @app.route('/')
 @login_required
 def index():
+    """
+    应用首页路由，重定向到数据导入页面。
+
+    :return: 重定向到 import_data 路由
+    """
     return redirect(url_for('import_data'))
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
+    """
+    处理用户登录请求。
+
+    :return: 如果登录成功，重定向到首页；否则渲染登录页面
+    """
     if request.method == 'POST':
+        # 从表单中获取用户名和密码
         username = request.form['username']
         password = request.form['password']
         
         conn = get_db_connection()
         try:
             with conn.cursor() as cursor:
+                # 从 users 表中查询指定用户名的用户
                 cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
                 user = cursor.fetchone()
                 if user and check_password_hash(user['password_hash'], password):
+                    # 如果用户存在且密码验证通过，登录用户
                     login_user(User(user['id']))
                     return redirect(url_for('index'))
         finally:
+            # 确保无论查询结果如何，都关闭数据库连接
             conn.close()
     return render_template('login.html')
 
 @app.route('/logout')
 @login_required
 def logout():
+    """
+    处理用户注销请求。
+
+    :return: 重定向到登录页面
+    """
+    # 使用 Flask-Login 的 logout_user 函数注销当前用户
     logout_user()
     return redirect(url_for('login'))
 
 @app.route('/import', methods=['GET', 'POST'])
 @login_required
 def import_data():
+    """
+    处理数据导入请求。
+
+    :return: 如果导入成功，重定向到数据导入页面；否则渲染导入页面
+    """
     if request.method == 'POST':
         if 'file' not in request.files:
             return redirect(request.url)
@@ -92,11 +164,14 @@ def import_data():
             return redirect(request.url)
             
         if file and allowed_file(file.filename):
+            # 安全处理文件名
             filename = secure_filename(file.filename)
+            # 构建文件保存路径
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
+            # 保存上传的文件
             file.save(filepath)
             
-            # 读取Excel文件
+            # 读取 Excel 文件
             wb = load_workbook(filepath)
             ws = wb.active
             
@@ -137,12 +212,17 @@ def import_data():
                             current_user.id,
                             store_id
                         ))
+                    # 提交数据库事务
                     conn.commit()
+                    # 显示成功消息
                     flash('数据导入成功')
             except Exception as e:
+                # 回滚数据库事务
                 conn.rollback()
+                # 显示错误消息
                 flash(f'导入失败: {str(e)}')
             finally:
+                # 确保无论操作结果如何，都关闭数据库连接
                 conn.close()
             
             return redirect(url_for('import_data'))
@@ -151,6 +231,11 @@ def import_data():
 @app.route('/export')
 @login_required
 def export_data():
+    """
+    处理数据导出请求。
+
+    :return: 如果导出成功，返回导出的 Excel 文件；否则重定向到首页
+    """
     # 获取查询参数
     store_id = request.args.get('store_id')
     start_date = request.args.get('start_date')
