@@ -1,7 +1,7 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, session, send_file, make_response
-from flask_mysqldb import MySQL
-import pandas as pd
+from flask_mysqldb import MySQL 
+import pandas as pd # type: ignore
 from datetime import datetime
 from werkzeug.security import generate_password_hash, check_password_hash
 from io import BytesIO
