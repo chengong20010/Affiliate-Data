@@ -1,3 +1,4 @@
+import app
 import pytest
 import pymysql
 from app import get_db_connection

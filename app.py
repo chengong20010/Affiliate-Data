@@ -1,327 +1,299 @@
-# 导入 Flask 及其相关模块，用于构建 Web 应用
-from flask import Flask, flash, render_template, request, redirect, url_for, send_file, session
-# 导入 Flask-Login 相关模块，用于处理用户登录和会话管理
-from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
-# 再次导入 session，虽然重复但不影响功能
-from flask import session
-# 导入 Werkzeug 安全模块，用于密码哈希和验证
-from werkzeug.security import generate_password_hash, check_password_hash
-# 导入 Werkzeug 工具模块，用于安全处理文件名
-from werkzeug.utils import secure_filename
-# 导入 openpyxl 库，用于读取 Excel 文件
-from openpyxl import load_workbook
-# 导入 pymysql 游标模块，用于与 MySQL 数据库交互
-import pymysql.cursors
-# 从配置文件中导入配置类
-from config import Config
-# 再次导入 openpyxl 库，用于创建 Excel 文件
-from openpyxl import Workbook
-# 导入 os 模块，用于操作系统相关功能，如文件路径操作
 import os
-# 导入 datetime 模块，用于处理日期和时间
+from flask import Flask, render_template, request, redirect, url_for, session, send_file, make_response
+from flask_mysqldb import MySQL
+import pandas as pd
 from datetime import datetime
+from werkzeug.security import generate_password_hash, check_password_hash
+from io import BytesIO
 
-# 创建 Flask 应用实例
 app = Flask(__name__)
-# 从配置类中加载应用配置
-app.config.from_object(Config)
+app.secret_key = os.urandom(24)
 
-# 初始化 Flask-Login 的登录管理器
-login_manager = LoginManager(app)
-# 设置登录视图，当用户未登录访问需要登录的页面时，重定向到该视图
-login_manager.login_view = 'login'
+# 从配置文件加载
+app.config.from_pyfile('config.py')
 
-# 数据库连接
-def get_db_connection():
-    """
-    建立与 MySQL 数据库的连接。
+# 配置数据库连接池参数
+app.config.update({
+    'MYSQL_CONNECT_TIMEOUT': 30,
+    'MYSQL_POOL_SIZE': 20,
+    'MYSQL_POOL_NAME': 'main_pool',
+    'MYSQL_AUTOCOMMIT': True
+})
 
-    :return: 返回一个 pymysql 连接对象
-    """
-    return pymysql.connect(
-        # 从应用配置中获取 MySQL 主机地址
-        host=app.config['MYSQL_HOST'],
-        # 从应用配置中获取 MySQL 用户名
-        user=app.config['MYSQL_USER'],
-        # 从应用配置中获取 MySQL 密码
-        password=app.config['MYSQL_PASSWORD'],
-        # 从应用配置中获取要连接的 MySQL 数据库名
-        database=app.config['MYSQL_DB'],
-        # 指定游标类为 DictCursor，查询结果以字典形式返回
-        cursorclass=pymysql.cursors.DictCursor
-    )
+mysql = MySQL(app)
 
-class User(UserMixin):
-    """
-    用户类，继承自 UserMixin，用于 Flask-Login 管理用户会话。
-    """
-    def __init__(self, user_id):
-        """
-        初始化用户对象。
-
-        :param user_id: 用户的唯一标识符
-        """
-        self.id = user_id
-
-@login_manager.user_loader
-def load_user(user_id):
-    """
-    根据用户 ID 加载用户对象，Flask-Login 会在需要时调用此函数。
-
-    :param user_id: 用户的唯一标识符
-    :return: 如果用户存在，返回 User 对象；否则返回 None
-    """
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            # 从 users 表中查询指定 ID 的用户
-            cursor.execute('SELECT id FROM users WHERE id = %s', (user_id,))
-            user = cursor.fetchone()
-            if user:
-                return User(user_id)
-    finally:
-        # 确保无论查询结果如何，都关闭数据库连接
-        conn.close()
-    return None
-
-@app.route('/logout')
-@login_required  # 添加登录验证装饰器，确保只有登录用户可以访问此路由
-def logout():
-    """
-    处理用户注销请求。
-
-    :return: 重定向到登录页面
-    """
-    # 使用 Flask-Login 的 logout_user 函数注销当前用户
-    logout_user()
-    return redirect(url_for('login'))
-
-@app.route('/')
-@login_required
-def index():
-    """
-    应用首页路由，重定向到数据导入页面。
-
-    :return: 重定向到 import_data 路由
-    """
-    return redirect(url_for('import_data'))
-
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    """
-    处理用户登录请求。
-
-    :return: 如果登录成功，重定向到首页；否则渲染登录页面
-    """
-    if request.method == 'POST':
-        # 从表单中获取用户名和密码
-        username = request.form['username']
-        password = request.form['password']
+# 数据库初始化
+def init_db():
+    with app.app_context():
+        cur = mysql.connection.cursor()
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS users (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                username VARCHAR(50) UNIQUE NOT NULL,
+                password VARCHAR(100) NOT NULL,
+                role ENUM('admin', 'operator') NOT NULL,
+                login_attempts INT DEFAULT 0,
+                last_login DATETIME,
+                status ENUM('active', 'locked') DEFAULT 'active'
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS stores (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                store_name VARCHAR(100) NOT NULL,
+                deduction_rate DECIMAL(5,2) NOT NULL
+            )
+        ''')
+        cur.execute('''
+            CREATE TABLE IF NOT EXISTS sales (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                barcode VARCHAR(50) NOT NULL,
+                product_name VARCHAR(100) NOT NULL,
+                quantity INT NOT NULL,
+                unit_price DECIMAL(10,2) NOT NULL,
+                total_amount DECIMAL(10,2) NOT NULL,
+                deduction_rate DECIMAL(5,2) NOT NULL,
+                deduction_amount DECIMAL(10,2) NOT NULL,
+                settlement_amount DECIMAL(10,2) NOT NULL,
+                `year_month` CHAR(7) NOT NULL,
+                `import_time` DATETIME NOT NULL,
+                client_name VARCHAR(100),
+                salesperson VARCHAR(50),
+                `operator` VARCHAR(50),
+                store_id INT,
+                FOREIGN KEY (store_id) REFERENCES stores(id)
+            )
+        ''')
         
-        conn = get_db_connection()
+        # 插入测试用户
+        test_users = [
+            ('admin', generate_password_hash('Admin@1234'), 'admin'),
+            ('operator1', generate_password_hash('Operator1!'), 'operator')
+        ]
+        cur.executemany(
+            "INSERT IGNORE INTO users (username, password, role) VALUES (%s, %s, %s)",
+            test_users
+        )
+        mysql.connection.commit()
+
+@app.route('/', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '').strip()
+        
+        if not username or not password:
+            return render_template('error.html', message='用户名和密码不能为空')
+            
         try:
-            with conn.cursor() as cursor:
-                # 从 users 表中查询指定用户名的用户
-                cursor.execute('SELECT * FROM users WHERE username = %s', (username,))
-                user = cursor.fetchone()
-                if user and check_password_hash(user['password_hash'], password):
-                    # 如果用户存在且密码验证通过，登录用户
-                    login_user(User(user['id']))
-                    return redirect(url_for('index'))
+            cur = mysql.connection.cursor()
+            # 先检查登录尝试次数
+            cur.execute("""
+                SELECT id, password, role, login_attempts, last_login, status 
+                FROM users 
+                WHERE username = %s
+                AND status = 'active'
+                AND (login_attempts < 5 OR TIMESTAMPDIFF(MINUTE, last_login, NOW()) >= 30)
+            """, (username,))
+            user = cur.fetchone()
+            
+            if not user:
+                return render_template('error.html', message='账户已锁定或用户名不存在，请30分钟后再试')
+                
+            if check_password_hash(user['password'], password):  # 修正密码验证参数顺序
+                # 重置登录尝试次数
+                cur.execute("""
+                    UPDATE users 
+                    SET login_attempts = 0, last_login = NOW() 
+                    WHERE id = %s
+                """, (user['id'],))
+                mysql.connection.commit()
+                
+                session.permanent = True
+                session['user_id'] = user['id']
+                session['username'] = username
+                session['role'] = user['role']
+                session['ip'] = request.remote_addr
+                
+                # 根据角色跳转不同页面
+                if user['role'] == 'admin':
+                    return redirect(url_for('admin_dashboard'))
+                return redirect(url_for('import_data'))
+            else:
+                # 增加登录尝试次数
+                cur.execute("""
+                    UPDATE users 
+                    SET login_attempts = login_attempts + 1, last_login = NOW() 
+                    WHERE id = %s
+                """, (user['id'],))
+                mysql.connection.commit()
+                remaining_attempts = 4 - user['login_attempts']
+                return render_template('error.html', 
+                    message=f'登录失败，剩余尝试次数：{remaining_attempts}次，连续5次失败将锁定账户')
+                
+        except Exception as e:
+            mysql.connection.rollback()
+            return render_template('error.html', message='登录异常：' + str(e))
         finally:
-            # 确保无论查询结果如何，都关闭数据库连接
-            conn.close()
-    return render_template('login.html')
-
-@app.route('/logout')
-@login_required
-def logout():
-    """
-    处理用户注销请求。
-
-    :return: 重定向到登录页面
-    """
-    # 使用 Flask-Login 的 logout_user 函数注销当前用户
-    logout_user()
-    return redirect(url_for('login'))
+            cur.close()
+            
+    # 添加安全头
+    response = make_response(render_template('login.html'))
+    response.headers['Content-Security-Policy'] = "default-src 'self'"
+    response.headers['X-Content-Type-Options'] = 'nosniff'
+    return response
 
 @app.route('/import', methods=['GET', 'POST'])
-@login_required
 def import_data():
-    """
-    处理数据导入请求。
-
-    :return: 如果导入成功，重定向到数据导入页面；否则渲染导入页面
-    """
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
     if request.method == 'POST':
-        if 'file' not in request.files:
-            return redirect(request.url)
+        try:
+            if 'file' not in request.files:
+                return render_template('error.html', message='请选择要上传的文件')
             
-        file = request.files['file']
-        store_id = request.form.get('store_id')
-        
-        if file.filename == '':
-            return redirect(request.url)
+            file = request.files['file']
+            if file.filename == '':
+                return render_template('error.html', message='未选择文件')
             
-        if file and allowed_file(file.filename):
-            # 安全处理文件名
-            filename = secure_filename(file.filename)
-            # 构建文件保存路径
-            filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
-            # 保存上传的文件
-            file.save(filepath)
+            if not file.filename.endswith(('.xls', '.xlsx')):
+                return render_template('error.html', message='仅支持Excel文件')
             
-            # 读取 Excel 文件
-            wb = load_workbook(filepath)
-            ws = wb.active
+            # 读取Excel数据
+            df = pd.read_excel(file)
             
-            conn = get_db_connection()
-            try:
-                with conn.cursor() as cursor:
-                    # 获取扣点比例
-                    cursor.execute('SELECT deduction_rate FROM stores WHERE id = %s', (store_id,))
-                    store = cursor.fetchone()
-                    deduction_rate = store['deduction_rate'] if store else 0.0
-                    
-                    # 处理数据
-                    for row in ws.iter_rows(min_row=2, values_only=True):
-                        barcode, quantity, unit_price, total = row
-                        deduction_amount = total * deduction_rate
-                        settlement_amount = total - deduction_amount
-                        
-                        # 获取商品名称
-                        product_name = get_product_name(barcode)  # 需要实现商品查询逻辑
-                        
-                        cursor.execute('''
-                            INSERT INTO sales_records 
-                            (barcode, product_name, quantity, unit_price, total_amount, 
-                             deduction_rate, deduction_amount, settlement_amount,
-                             year_month, import_time, operator_id, store_id)
-                            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                        ''', (
-                            barcode, 
-                            product_name,
-                            quantity,
-                            unit_price,
-                            total,
-                            deduction_rate,
-                            deduction_amount,
-                            settlement_amount,
-                            datetime.now().strftime('%Y-%m'),
-                            datetime.now(),
-                            current_user.id,
-                            store_id
-                        ))
-                    # 提交数据库事务
-                    conn.commit()
-                    # 显示成功消息
-                    flash('数据导入成功')
-            except Exception as e:
-                # 回滚数据库事务
-                conn.rollback()
-                # 显示错误消息
-                flash(f'导入失败: {str(e)}')
-            finally:
-                # 确保无论操作结果如何，都关闭数据库连接
-                conn.close()
+            # 验证必要列
+            required_columns = ['条码', '商品名称', '数量', '单价', '扣率', '客户名称', '业务员', '年月']
+            if not all(col in df.columns for col in required_columns):
+                missing = [col for col in required_columns if col not in df.columns]
+                return render_template('error.html', message=f'缺少必要列: {", ".join(missing)}')
             
-            return redirect(url_for('import_data'))
+            # 转换数据
+            current_time = datetime.now()
+            data_to_insert = []
+            for _, row in df.iterrows():
+                # 验证门店信息
+                cur = mysql.connection.cursor()
+                cur.execute("""
+                    SELECT id, deduction_rate 
+                    FROM stores 
+                    WHERE LOWER(store_name) = LOWER(%s) 
+                    LIMIT 1
+                """, (row['客户名称'].strip(),))
+                store = cur.fetchone()
+                if not store:
+                    return render_template('error.html', message=f'未找到门店: {row["客户名称"]}')
+                
+                # 数据验证和转换
+                try:
+                    quantity = int(row['数量'])
+                    unit_price = float(row['单价'])
+                    deduction_rate = float(row['扣率'])
+                except ValueError as e:
+                    return render_template('error.html', message=f'数据转换失败: {str(e)}')
+                total_amount = quantity * unit_price
+                deduction_amount = total_amount * deduction_rate / 100
+                settlement_amount = total_amount - deduction_amount
+                
+                data_to_insert.append((
+                    row['条码'],
+                    row['商品名称'],
+                    quantity,
+                    unit_price,
+                    total_amount,
+                    deduction_rate,
+                    deduction_amount,
+                    settlement_amount,
+                    row['年月'],
+                    current_time,
+                    row['客户名称'],
+                    row['业务员'],
+                    session['username'],
+                    store['id']
+                ))
+            
+            # 批量插入数据库
+            cur = mysql.connection.cursor()
+            cur.executemany('''
+                INSERT INTO sales (
+                    barcode, product_name, quantity, unit_price, total_amount,
+                    deduction_rate, deduction_amount, settlement_amount,
+                    year_month, import_time, client_name, salesperson, operator, store_id
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ''', data_to_insert)
+            
+            mysql.connection.commit()
+            return redirect(url_for('export_data'))
+            
+        except pd.errors.EmptyDataError:
+            return render_template('error.html', message='Excel文件内容为空')
+        except pd.errors.ParserError:
+            return render_template('error.html', message='Excel文件解析失败')
+        except Exception as e:
+            mysql.connection.rollback()
+            return render_template('error.html', message=f'导入失败: {str(e)}')
+    
     return render_template('import.html')
 
-@app.route('/export')
-@login_required
+@app.route('/export', methods=['GET', 'POST'])
 def export_data():
-    """
-    处理数据导出请求。
-
-    :return: 如果导出成功，返回导出的 Excel 文件；否则重定向到首页
-    """
-    # 获取查询参数
-    store_id = request.args.get('store_id')
-    start_date = request.args.get('start_date')
-    end_date = request.args.get('end_date')
-
-    # 构建基础查询
-    query = '''
-        SELECT s.barcode, p.name as product_name, s.quantity, 
-               s.unit_price, s.total_amount, s.deduction_rate,
-               s.deduction_amount, s.settlement_amount,
-               s.year_month, s.import_time, 
-               st.name as store_name, u.username as operator
-        FROM sales_records s
-        LEFT JOIN products p ON s.barcode = p.barcode
-        LEFT JOIN stores st ON s.store_id = st.id
-        LEFT JOIN users u ON s.operator_id = u.id
-        WHERE 1=1
-    '''
-    params = []
+    if 'username' not in session:
+        return redirect(url_for('login'))
     
-    # 添加过滤条件
-    if store_id:
-        query += " AND s.store_id = %s"
-        params.append(store_id)
-    if start_date and end_date:
-        query += " AND s.import_time BETWEEN %s AND %s" 
-        params.extend([start_date, end_date])
+    if request.method == 'POST':
+        # 获取查询参数
+        store_id = request.form.get('store_id')
+        start_date = request.form.get('start_date')
+        end_date = request.form.get('end_date')
 
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute(query, params)
-            results = cursor.fetchall()
+        # 构建基础查询
+        query = """
+            SELECT s.id, s.barcode, s.product_name, s.quantity, s.unit_price, s.total_amount,
+                   s.deduction_rate, s.deduction_amount, s.settlement_amount,
+                   s.year_month, s.import_time, st.store_name, s.operator
+            FROM sales s
+            JOIN stores st ON s.store_id = st.id
+            WHERE 1=1
+        """
+        params = []
+        
+        # 添加过滤条件
+        if store_id:
+            query += " AND s.store_id = %s"
+            params.append(store_id)
+        if start_date and end_date:
+            query += " AND s.import_time BETWEEN %s AND %s"
+            params.extend([start_date, end_date])
 
-            # 创建Excel文件
-            wb = Workbook()
-            ws = wb.active
-            ws.title = "销售数据"
-            
-            # 添加表头
-            headers = ['商品条码', '商品名称', '销售数量', '销售单价', '销售金额',
-                      '扣点比例', '扣点金额', '结算金额', '年月', '导入时间',
-                      '客户名称', '操作员']
-            ws.append(headers)
-            
-            # 填充数据
-            for row in results:
-                ws.append([
-                    row['barcode'],
-                    row['product_name'],
-                    row['quantity'],
-                    row['unit_price'],
-                    row['total_amount'],
-                    row['deduction_rate'],
-                    row['deduction_amount'],
-                    row['settlement_amount'],
-                    row['year_month'],
-                    row['import_time'].strftime('%Y-%m-%d %H:%M:%S'),
-                    row['store_name'],
-                    row['operator']
-                ])
-            
-            # 保存临时文件
-            filename = f"export_{datetime.now().strftime('%Y%m%d%H%M%S')}.xlsx"
-            filepath = os.path.join(app.config['EXPORT_FOLDER'], filename)
-            wb.save(filepath)
-            
-            return send_file(filepath, as_attachment=True, download_name=f"销售数据导出_{filename}")
-            
-    except Exception as e:
-        flash(f'导出失败: {str(e)}')
-        return redirect(url_for('index'))
-    finally:
-        conn.close()
+        # 执行查询
+        cursor = mysql.connection.cursor()
+        cursor.execute(query, params)
+        results = cursor.fetchall()
+        cursor.close()
 
-def get_product_name(barcode):
-    conn = get_db_connection()
-    try:
-        with conn.cursor() as cursor:
-            cursor.execute('SELECT name FROM products WHERE barcode = %s', (barcode,))
-            product = cursor.fetchone()
-            if product:
-                return product['name']
-    finally:
-        conn.close()
-    return None
+        # 创建DataFrame
+        df = pd.DataFrame(results, columns=[desc[0] for desc in cursor.description])
+        
+        # 生成Excel文件
+        output = BytesIO()
+        with pd.ExcelWriter(output, engine='openpyxl') as writer:
+            df.to_excel(writer, index=False)
+        
+        output.seek(0)
+        return send_file(output, 
+                        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                        download_name='sales_export.xlsx',
+                        as_attachment=True)
+
+    # 获取门店列表用于筛选
+    cursor = mysql.connection.cursor()
+    cursor.execute("SELECT id, store_name FROM stores")
+    stores = cursor.fetchall()
+    cursor.close()
+    
+    return render_template('export.html', stores=stores)
 
 if __name__ == '__main__':
+    init_db()
     app.run(debug=True)

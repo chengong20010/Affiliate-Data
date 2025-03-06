@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>数据导出</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+</head>
+<body>
+    <div class="container mt-5">
+        <h2>数据导出</h2>
+        <form method="POST">
+            <div class="row mb-3">
+                <div class="col">
+                    <label class="form-label">时间段</label>
+                    <div class="input-group">
+                        <input type="date" class="form-control" name="start_date">
+                        <span class="input-group-text">至</span>
+                        <input type="date" class="form-control" name="end_date">
+                    </div>
+                </div>
+                <div class="col">
+                    <label class="form-label">门店</label>
+                    <select class="form-select" name="store_id">
+                        <option value="">全部</option>
+                        {% for store in stores %}
+                        <option value="{{ store.id }}">{{ store.name }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+                <div class="col">
+                    <label class="form-label">操作员</label>
+                    <select class="form-select" name="operator_id">
+                        <option value="">全部</option>
+                        {% for user in users %}
+                        <option value="{{ user.id }}">{{ user.username }}</option>
+                        {% endfor %}
+                    </select>
+                </div>
+            </div>
+            <button type="submit" class="btn btn-success">导出Excel</button>
+        </form>
+
+        <hr>
+        <h4 class="mt-4">最近10条记录</h4>
+        <table class="table table-striped">
+            <thead>
+                <tr>
+                    <th>商品条码</th>
+                    <th>销售数量</th>
+                    <th>结算金额</th>
+                    <th>操作时间</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for record in recent_records %}
+                <tr>
+                    <td>{{ record.barcode }}</td>
+                    <td>{{ record.quantity }}</td>
+                    <td>{{ record.settlement_amount }}</td>
+                    <td>{{ record.import_time.strftime('%Y-%m-%d %H:%M') }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</body>
+</html>
