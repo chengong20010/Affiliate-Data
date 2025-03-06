@@ -117,8 +117,8 @@ def login():
                 
                 # 根据角色跳转不同页面
                 if user['role'] == 'admin':
-                    return redirect(url_for('admin_dashboard'))
-                return redirect(url_for('import_data'))
+                    return redirect(url_for('dashboard'))
+                return redirect(url_for('dashboard'))
             else:
                 # 增加登录尝试次数
                 cur.execute("""
@@ -142,6 +142,46 @@ def login():
     response.headers['Content-Security-Policy'] = "default-src 'self'"
     response.headers['X-Content-Type-Options'] = 'nosniff'
     return response
+
+@app.route('/dashboard')
+def dashboard():
+    if 'username' not in session:
+        return redirect(url_for('login'))
+    
+    try:
+        cur = mysql.connection.cursor()
+        # 查询销售数据
+        cur.execute("""
+            SELECT 
+                barcode AS '商品条码',
+                product_name AS '商品名称',
+                quantity AS '销售数量',
+                unit_price AS '销售单价',
+                total_amount AS '销售金额',
+                deduction_rate AS '扣点比例',
+                deduction_amount AS '扣点金额',
+                settlement_amount AS '结算金额',
+                year_month AS '年月',
+                import_time AS '导入时间',
+                store_name AS '门店名称',
+                operator AS '操作员'
+            FROM sales
+            JOIN stores ON sales.store_id = stores.id
+            ORDER BY import_time DESC
+            LIMIT 1000
+        """)
+        data = cur.fetchall()
+        columns = [desc[0] for desc in cur.description]  # 获取字段名称
+        
+        return render_template('dashboard.html', 
+                             data=data,
+                             columns=columns,
+                             role=session['role'])
+    
+    except Exception as e:
+        return render_template('error.html', message='数据加载失败: ' + str(e))
+    finally:
+        cur.close()
 
 @app.route('/import', methods=['GET', 'POST'])
 def import_data():

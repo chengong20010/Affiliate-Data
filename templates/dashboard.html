@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>销售数据看板</title>
+    <style>
+        .column-config {
+            background: #f5f5f5;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .config-toggle {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-bottom: 10px;
+        }
+        .column-checkboxes {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+        }
+        .data-table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        .data-table th, .data-table td {
+            border: 1px solid #ddd;
+            padding: 12px;
+            text-align: left;
+        }
+        .data-table th {
+            background-color: #f8f9fa;
+            font-weight: 600;
+        }
+        .data-table tr:nth-child(even) {
+            background-color: #f9f9f9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h2>销售数据看板 - {{ role|capitalize }}视图</h2>
+        
+        <div class="column-config">
+            <button class="config-toggle" onclick="toggleColumnConfig()">列配置</button>
+            <div class="column-checkboxes" id="columnConfig" style="display: none;">
+                {% for column in columns %}
+                <label>
+                    <input type="checkbox" name="column" value="{{ column }}" checked 
+                           onchange="updateColumnVisibility(this)"> {{ column }}
+                </label>
+                {% endfor %}
+            </div>
+        </div>
+
+        <table class="data-table">
+            <thead>
+                <tr>
+                    {% for column in columns %}
+                    <th class="col-{{ column }}">{{ column }}</th>
+                    {% endfor %}
+                </tr>
+            </thead>
+            <tbody>
+                {% for row in data %}
+                <tr>
+                    {% for column in columns %}
+                    <td class="col-{{ column }}">{{ row[column] }}</td>
+                    {% endfor %}
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <script>
+        // 从localStorage加载列配置
+        document.addEventListener('DOMContentLoaded', function() {
+            const savedColumns = JSON.parse(localStorage.getItem('columnSettings') || '{}');
+            document.querySelectorAll('.column-checkboxes input').forEach(checkbox => {
+                const columnName = checkbox.value;
+                checkbox.checked = savedColumns[columnName] !== false;
+                updateColumnVisibility(checkbox);
+            });
+        });
+
+        function toggleColumnConfig() {
+            const configDiv = document.getElementById('columnConfig');
+            configDiv.style.display = configDiv.style.display === 'none' ? 'grid' : 'none';
+        }
+
+        function updateColumnVisibility(checkbox) {
+            const columnName = checkbox.value;
+            const isVisible = checkbox.checked;
+            
+            // 更新表格显示
+            document.querySelectorAll(`.col-${columnName}`).forEach(el => {
+                el.style.display = isVisible ? '' : 'none';
+            });
+
+            // 保存设置到localStorage
+            const currentSettings = JSON.parse(localStorage.getItem('columnSettings') || '{}');
+            currentSettings[columnName] = isVisible;
+            localStorage.setItem('columnSettings', JSON.stringify(currentSettings));
+        }
+    </script>
+</body>
+</html>

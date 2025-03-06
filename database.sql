@@ -10,21 +10,21 @@ CREATE TABLE IF NOT EXISTS operators (
 );
 
 CREATE TABLE IF NOT EXISTS sales_data (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    商品条码 VARCHAR(50) NOT NULL,
-    商品名称 VARCHAR(255),
-    销售数量 INT NOT NULL,
-    销售单价 DECIMAL(10,2) NOT NULL,
-    销售金额 DECIMAL(10,2) NOT NULL,
-    扣点比例 DECIMAL(5,4) NOT NULL,
-    扣点金额 DECIMAL(10,2) NOT NULL,
-    结算金额 DECIMAL(10,2) NOT NULL,
-    年月 DATE NOT NULL,
-    导入时间 DATETIME NOT NULL,
-    客户名称 VARCHAR(100) NOT NULL,
-    业务员 VARCHAR(50) NOT NULL,
-    操作员 VARCHAR(50) NOT NULL
-);
+    id INT AUTO_INCREMENT PRIMARY KEY COMMENT '自增主键',
+    product_barcode VARCHAR(50) NOT NULL COMMENT '商品条码',
+    product_name VARCHAR(255) NOT NULL COMMENT '商品名称',
+    sales_quantity INT NOT NULL COMMENT '销售数量',
+    sales_price DECIMAL(10, 2) NOT NULL COMMENT '销售单价',
+    sales_amount DECIMAL(10, 2) NOT NULL COMMENT '销售金额',
+    deduction_rate DECIMAL(5, 2) NOT NULL COMMENT '扣点比例',
+    deduction_amount DECIMAL(10, 2) NOT NULL COMMENT '扣点金额',
+    settlement_amount DECIMAL(10, 2) NOT NULL COMMENT '结算金额',
+    YEAR_MONTH  VARCHAR(7) NOT NULL COMMENT '年和月',
+    import_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '导入时间',
+    customer_name VARCHAR(255) NOT NULL COMMENT '客户名称',
+    salesperson VARCHAR(100) NOT NULL COMMENT '业务员',
+    operator VARCHAR(100) NOT NULL COMMENT '操作员'
+) COMMENT '销售数据记录表';
 
 INSERT INTO operators (username, password, role) 
 VALUES ('admin', 'admin123', 'admin');
