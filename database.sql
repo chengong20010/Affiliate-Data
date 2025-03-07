@@ -19,7 +19,7 @@ CREATE TABLE IF NOT EXISTS sales_data (
     deduction_rate DECIMAL(5, 2) NOT NULL COMMENT '扣点比例',
     deduction_amount DECIMAL(10, 2) NOT NULL COMMENT '扣点金额',
     settlement_amount DECIMAL(10, 2) NOT NULL COMMENT '结算金额',
-    YEAR_MONTH  VARCHAR(7) NOT NULL COMMENT '年和月',
+    years_month  VARCHAR(7) NOT NULL COMMENT '年和月',
     import_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT '导入时间',
     customer_name VARCHAR(255) NOT NULL COMMENT '客户名称',
     salesperson VARCHAR(100) NOT NULL COMMENT '业务员',
@@ -27,4 +27,4 @@ CREATE TABLE IF NOT EXISTS sales_data (
 ) COMMENT '销售数据记录表';
 
 INSERT INTO operators (username, password, role) 
-VALUES ('admin', 'admin123', 'admin');
+VALUES ('admin', '1234', 'admin');

@@ -45,7 +45,7 @@ def init_db():
             )
         ''')
         cur.execute('''
-            CREATE TABLE IF NOT EXISTS sales (
+            CREATE TABLE IF NOT EXISTS sales_data (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 barcode VARCHAR(50) NOT NULL,
                 product_name VARCHAR(100) NOT NULL,
@@ -55,7 +55,7 @@ def init_db():
                 deduction_rate DECIMAL(5,2) NOT NULL,
                 deduction_amount DECIMAL(10,2) NOT NULL,
                 settlement_amount DECIMAL(10,2) NOT NULL,
-                `year_month` CHAR(7) NOT NULL,
+                `years_month` CHAR(7) NOT NULL,
                 `import_time` DATETIME NOT NULL,
                 client_name VARCHAR(100),
                 salesperson VARCHAR(50),
@@ -67,7 +67,7 @@ def init_db():
         
         # 插入测试用户
         test_users = [
-            ('admin', generate_password_hash('Admin@1234'), 'admin'),
+            ('admin', generate_password_hash('1234'), 'admin'),
             ('operator1', generate_password_hash('Operator1!'), 'operator')
         ]
         cur.executemany(
@@ -96,6 +96,13 @@ def login():
                 AND (login_attempts < 5 OR TIMESTAMPDIFF(MINUTE, last_login, NOW()) >= 30)
             """, (username,))
             user = cur.fetchone()
+
+            # cur.execute("""
+            #     SELECT id, password, 
+            #     FROM operators
+            #     WHERE username = %s
+            #     """, (username,))
+            # opuser = cur.fetchone()
             
             if not user:
                 return render_template('error.html', message='账户已锁定或用户名不存在，请30分钟后再试')
@@ -153,19 +160,20 @@ def dashboard():
         # 查询销售数据
         cur.execute("""
             SELECT 
-                barcode AS '商品条码',
+                product_barcode AS '商品条码',
                 product_name AS '商品名称',
-                quantity AS '销售数量',
-                unit_price AS '销售单价',
-                total_amount AS '销售金额',
+                sales_quantity AS '销售数量',
+                sales_price AS '销售单价',
+                sales_amount AS '销售金额',
                 deduction_rate AS '扣点比例',
                 deduction_amount AS '扣点金额',
                 settlement_amount AS '结算金额',
-                year_month AS '年月',
+                years_month AS '年月',
                 import_time AS '导入时间',
-                store_name AS '门店名称',
+                customer_name AS '客户名称',
+                salesperson AS '业务员',
                 operator AS '操作员'
-            FROM sales
+            FROM sales_data
             JOIN stores ON sales.store_id = stores.id
             ORDER BY import_time DESC
             LIMIT 1000
@@ -256,10 +264,10 @@ def import_data():
             # 批量插入数据库
             cur = mysql.connection.cursor()
             cur.executemany('''
-                INSERT INTO sales (
+                INSERT INTO sales_data (
                     barcode, product_name, quantity, unit_price, total_amount,
                     deduction_rate, deduction_amount, settlement_amount,
-                    year_month, import_time, client_name, salesperson, operator, store_id
+                    years_month, import_time, client_name, salesperson, operator, store_id
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', data_to_insert)
             
@@ -291,8 +299,8 @@ def export_data():
         query = """
             SELECT s.id, s.barcode, s.product_name, s.quantity, s.unit_price, s.total_amount,
                    s.deduction_rate, s.deduction_amount, s.settlement_amount,
-                   s.year_month, s.import_time, st.store_name, s.operator
-            FROM sales s
+                   s.years_month, s.import_time, st.store_name, s.operator
+            FROM sales_data s
             JOIN stores st ON s.store_id = st.id
             WHERE 1=1
         """
@@ -335,5 +343,5 @@ def export_data():
     return render_template('export.html', stores=stores)
 
 if __name__ == '__main__':
-    init_db()
+    # init_db()
     app.run(debug=True)
