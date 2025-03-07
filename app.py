@@ -45,7 +45,7 @@ def init_db():
             )
         ''')
         cur.execute('''
-            CREATE TABLE IF NOT EXISTS sales_data (
+            CREATE TABLE IF NOT EXISTS sales (
                 id INT AUTO_INCREMENT PRIMARY KEY,
                 barcode VARCHAR(50) NOT NULL,
                 product_name VARCHAR(100) NOT NULL,
@@ -66,15 +66,15 @@ def init_db():
         ''')
         
         # 插入测试用户
-        test_users = [
-            ('admin', generate_password_hash('1234'), 'admin'),
-            ('operator1', generate_password_hash('Operator1!'), 'operator')
-        ]
-        cur.executemany(
-            "INSERT IGNORE INTO users (username, password, role) VALUES (%s, %s, %s)",
-            test_users
-        )
-        mysql.connection.commit()
+        # test_users = [
+        #     ('admin', generate_password_hash('1234'), 'admin'),
+        #     ('operator1', generate_password_hash('Operator1!'), 'operator')
+        # ]
+        # cur.executemany(
+        #     "INSERT IGNORE INTO users (username, password, role) VALUES (%s, %s, %s)",
+        #     test_users
+        # )
+        # mysql.connection.commit()
 
 @app.route('/', methods=['GET', 'POST'])
 def login():
@@ -160,21 +160,21 @@ def dashboard():
         # 查询销售数据
         cur.execute("""
             SELECT 
-                product_barcode AS '商品条码',
-                product_name AS '商品名称',
-                sales_quantity AS '销售数量',
-                sales_price AS '销售单价',
-                sales_amount AS '销售金额',
-                deduction_rate AS '扣点比例',
-                deduction_amount AS '扣点金额',
-                settlement_amount AS '结算金额',
-                years_month AS '年月',
-                import_time AS '导入时间',
-                customer_name AS '客户名称',
-                salesperson AS '业务员',
-                operator AS '操作员'
-            FROM sales_data
-            JOIN stores ON sales.store_id = stores.id
+                sd.barcode AS '商品条码',
+                sd.product_name AS '商品名称',
+                sd.sales_quantity AS '销售数量',
+                sd.sales_price AS '销售单价',
+                sd.sales_amount AS '销售金额',
+                sd.deduction_rate AS '扣点比例',
+                sd.deduction_amount AS '扣点金额',
+                sd.settlement_amount AS '结算金额',
+                sd.years_month AS '年月',
+                sd.import_time AS '导入时间',
+                sd.client_name AS '客户名称',
+                sd.salesperson AS '业务员',
+                sd.operator AS '操作员'
+            FROM sales sd
+            JOIN stores ON sd.store_id = stores.id
             ORDER BY import_time DESC
             LIMIT 1000
         """)
@@ -224,9 +224,9 @@ def import_data():
                 # 验证门店信息
                 cur = mysql.connection.cursor()
                 cur.execute("""
-                    SELECT id, deduction_rate 
-                    FROM stores 
-                    WHERE LOWER(store_name) = LOWER(%s) 
+                    SELECT s.id, s.deduction_rate 
+                    FROM stores s
+                    WHERE LOWER(s.store_name) = LOWER(%s) 
                     LIMIT 1
                 """, (row['客户名称'].strip(),))
                 store = cur.fetchone()
@@ -264,10 +264,10 @@ def import_data():
             # 批量插入数据库
             cur = mysql.connection.cursor()
             cur.executemany('''
-                INSERT INTO sales_data (
-                    barcode, product_name, quantity, unit_price, total_amount,
-                    deduction_rate, deduction_amount, settlement_amount,
-                    years_month, import_time, client_name, salesperson, operator, store_id
+                INSERT INTO sales sd(
+                    sd.barcode, sd.product_name, sd.sales_quantity, sd.sales_price, sd.sales_amount,
+                    sd.deduction_rate, sd.deduction_amount, sd.settlement_amount,
+                    sd.years_month, sd.import_time, sd.client_name, sd.salesperson, sd.operator, sd.store_id
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             ''', data_to_insert)
             
@@ -297,21 +297,21 @@ def export_data():
 
         # 构建基础查询
         query = """
-            SELECT s.id, s.barcode, s.product_name, s.quantity, s.unit_price, s.total_amount,
-                   s.deduction_rate, s.deduction_amount, s.settlement_amount,
-                   s.years_month, s.import_time, st.store_name, s.operator
-            FROM sales_data s
-            JOIN stores st ON s.store_id = st.id
+            SELECT sd.id, sd.barcode, sd.product_name, sd.quantity, sd.unit_price, sd.total_amount,
+                   sd.deduction_rate, sd.deduction_amount, sd.settlement_amount,
+                   sd.years_month, sd.import_time, st.store_name, sd.operator
+            FROM sales sd
+            JOIN stores st ON sd.store_id = st.id
             WHERE 1=1
         """
         params = []
         
         # 添加过滤条件
         if store_id:
-            query += " AND s.store_id = %s"
+            query += " AND sd.store_id = %s"
             params.append(store_id)
         if start_date and end_date:
-            query += " AND s.import_time BETWEEN %s AND %s"
+            query += " AND sd.import_time BETWEEN %s AND %s"
             params.extend([start_date, end_date])
 
         # 执行查询
